@@ -1,10 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Sparkles } from 'lucide-react'
+import useSWR from 'swr'
+import { toast } from 'sonner'
+import { Loader2, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { buildChaseSchedule } from '@/lib/chase'
-import { addDays, seedInvoices, TODAY, type Invoice } from '@/lib/invoices'
+import { addDays, TODAY, type Invoice } from '@/lib/invoices'
+import { fetchInvoices, insertInvoice } from '@/lib/supabase/invoices'
 import { formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { ChaseView } from '@/components/chase/chase-view'
@@ -19,7 +22,7 @@ const titles: Record<View, { title: string; subtitle: string }> = {
 
 export function Dashboard() {
   const [view, setView] = useState<View>('overview')
-  const [invoices, setInvoices] = useState<Invoice[]>(seedInvoices)
+  const { data: invoices = [], error: loadError, isLoading, mutate } = useSWR('invoices', fetchInvoices)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export function Dashboard() {
   }, [])
 
   const nextNumber = useMemo(() => {
-    const max = Math.max(...invoices.map((i) => Number(i.number.replace(/\D/g, ''))))
+    const max = Math.max(0, ...invoices.map((i) => Number(i.number.replace(/\D/g, '')) || 0))
     return `INV-${String(max + 1).padStart(4, '0')}`
   }, [invoices])
 
@@ -46,10 +49,26 @@ export function Dashboard() {
       .filter((s) => s.status !== 'sent' && s.date <= weekEnd).length
   }, [invoices])
 
-  function handleCreate(invoice: Invoice) {
-    setInvoices((prev) => [invoice, ...prev.map((i) => ({ ...i, isNew: false }))])
+  async function handleCreate(invoice: Invoice) {
+    try {
+      await insertInvoice(invoice)
+    } catch (err) {
+      toast.error('Could not save invoice', {
+        description: err instanceof Error ? err.message : 'Supabase insert failed.',
+      })
+      return false
+    }
+    await mutate(
+      async () => {
+        const fresh = await fetchInvoices()
+        return fresh.map((i) => (i.number === invoice.number ? { ...i, isNew: true } : i))
+      },
+      { optimisticData: [invoice, ...invoices], revalidate: false },
+    )
+    toast.success(`${invoice.number} created`, { description: `Chase scheduled for ${invoice.clientName}.` })
     setDrawerOpen(false)
     setView('overview')
+    return true
   }
 
   const { title, subtitle } = titles[view]
@@ -106,6 +125,21 @@ export function Dashboard() {
 
         <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-7xl p-4 md:p-6">
+            {loadError ? (
+              <div role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {"Couldn't load invoices from Supabase: "}
+                {loadError instanceof Error ? loadError.message : 'Unknown error'}
+              </div>
+            ) : isLoading ? (
+              <p role="status" className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                Loading invoices…
+              </p>
+            ) : invoices.length === 0 ? (
+              <p className="mb-4 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                No invoices yet. Press ⌘K to create your first one.
+              </p>
+            ) : null}
             {view === 'overview' ? (
               <OverviewView invoices={invoices} onOpenChase={() => setView('chase')} />
             ) : (

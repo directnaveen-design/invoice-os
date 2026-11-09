@@ -20,7 +20,7 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   invoiceNumber: string
-  onCreate: (invoice: Invoice) => void
+  onCreate: (invoice: Invoice) => Promise<boolean>
 }
 
 export function MagicInvoiceDrawer({ open, onOpenChange, invoiceNumber, onCreate }: Props) {
@@ -28,6 +28,7 @@ export function MagicInvoiceDrawer({ open, onOpenChange, invoiceNumber, onCreate
   const [aiResult, setAiResult] = useState<{ prompt: string; draft: ParsedInvoice } | null>(null)
   const [thinking, setThinking] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const localDraft = useMemo(() => parseInvoicePrompt(prompt), [prompt])
   const aiApplied = aiResult?.prompt === prompt
@@ -55,9 +56,10 @@ export function MagicInvoiceDrawer({ open, onOpenChange, invoiceNumber, onCreate
     }
   }
 
-  function handleCreate() {
-    if (!canCreate || !draft.clientName) return
-    onCreate({
+  async function handleCreate() {
+    if (!canCreate || !draft.clientName || saving) return
+    setSaving(true)
+    const saved = await onCreate({
       id: invoiceNumber.toLowerCase(),
       number: invoiceNumber,
       clientName: draft.clientName,
@@ -69,6 +71,8 @@ export function MagicInvoiceDrawer({ open, onOpenChange, invoiceNumber, onCreate
       status: 'pending',
       isNew: true,
     })
+    setSaving(false)
+    if (!saved) return
     setPrompt('')
     setAiResult(null)
     setError(null)
@@ -204,8 +208,9 @@ export function MagicInvoiceDrawer({ open, onOpenChange, invoiceNumber, onCreate
                 <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button size="sm" disabled={!canCreate} onClick={handleCreate}>
-                  Create &amp; schedule chase
+                <Button size="sm" disabled={!canCreate || saving} onClick={handleCreate}>
+                  {saving && <Loader2 className="animate-spin" aria-hidden="true" />}
+                  {saving ? 'Saving…' : 'Create & schedule chase'}
                 </Button>
               </div>
             </div>
