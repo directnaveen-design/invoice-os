@@ -1,544 +1,419 @@
-// app/dashboard/create/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle,
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  Loader2,
-  Receipt,
-  X,
+  AlertCircle, ArrowRight, BadgeCheck, BookMarked, Building2, Check,
+  CheckCircle2, ChevronDown, Copy, FileText, Globe2, Loader2, Percent,
+  Plus, Printer, Receipt, ShieldCheck, Sparkles, Trash2, Upload, X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-/* -------------------------------------------------------------------------- */
-/*                                  Constants                                 */
-/* -------------------------------------------------------------------------- */
+/* ============================================================
+   TYPES
+   ============================================================ */
+type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD" | "AED" | "INR";
+type TaxMode = "none" | "us_sales" | "eu_vat" | "zero_export" | "custom";
 
-const CURRENCIES = [
-  { code: "INR", label: "INR — Indian Rupee", symbol: "₹" },
-  { code: "USD", label: "USD — US Dollar", symbol: "$" },
-  { code: "EUR", label: "EUR — Euro", symbol: "€" },
-  { code: "GBP", label: "GBP — British Pound", symbol: "£" },
-  { code: "AUD", label: "AUD — Australian Dollar", symbol: "A$" },
-  { code: "AED", label: "AED — UAE Dirham", symbol: "د.إ" },
-] as const;
+type LineItem = { id: string; description: string; quantity: number; unitPrice: number };
+type SavedClient = { id: string; name: string; email: string | null; address: string | null; tax_id: string | null; country: string | null };
+type SavedProduct = { id: string; name: string; default_price: number };
 
-type CurrencyCode = (typeof CURRENCIES)[number]["code"];
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+const CURRENCIES: { code: CurrencyCode; symbol: string; label: string }[] = [
+  { code: "USD", symbol: "$", label: "USD — US Dollar" },
+  { code: "EUR", symbol: "€", label: "EUR — Euro" },
+  { code: "GBP", symbol: "£", label: "GBP — British Pound" },
+  { code: "CAD", symbol: "CA$", label: "CAD — Canadian Dollar" },
+  { code: "AUD", symbol: "A$", label: "AUD — Australian Dollar" },
+  { code: "AED", symbol: "د.إ", label: "AED — UAE Dirham" },
+  { code: "INR", symbol: "₹", label: "INR — Indian Rupee" },
+];
 
-type FormState = {
-  client: string;
-  email: string;
-  invoiceNumber: string;
-  dueDate: string;
-  currency: CurrencyCode;
-  amount: string;
-  paymentLink: string;
-  upiId: string;
+const TAX_MODES: { value: TaxMode; label: string; desc: string; defaultRate: number }[] = [
+  { value: "none", label: "No tax", desc: "Standard invoice without tax lines.", defaultRate: 0 },
+  { value: "us_sales", label: "US Sales Tax", desc: "Per-state sales tax (0–12%).", defaultRate: 0 },
+  { value: "eu_vat", label: "EU VAT", desc: "VAT charged based on client country.", defaultRate: 20 },
+  { value: "zero_export", label: "Zero-Rated Export", desc: "0% reverse charge for cross-border B2B.", defaultRate: 0 },
+  { value: "custom", label: "Custom Rate", desc: "Define your own tax percentage.", defaultRate: 0 },
+];
+
+const TAX_DISCLAIMERS: Record<TaxMode, string> = {
+  none: "",
+  us_sales: "Sales tax applied as per applicable US state jurisdiction.",
+  eu_vat: "VAT charged as per EU Directive 2006/112/EC.",
+  zero_export:
+    "Zero-rated international service export. Reverse charge: VAT to be accounted by the recipient under Article 196, Council Directive 2006/112/EC.",
+  custom: "",
 };
 
-const INITIAL_FORM: FormState = {
-  client: "",
-  email: "",
-  invoiceNumber: "INV-0001",
-  dueDate: "",
-  currency: "USD",
-  amount: "",
-  paymentLink: "",
-  upiId: "",
-};
-
+const BRAND_COLORS = ["#10b981", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444", "#ec4899"];
 const PUBLIC_BASE_URL = "https://invoice-os-beta.vercel.app";
 
 const inputClass =
-  "w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 " +
-  "placeholder:text-slate-600 outline-none transition " +
-  "focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20";
+  "w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2.5 text-sm text-slate-100 " +
+  "placeholder:text-slate-600 outline-none transition focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20";
 
-/* -------------------------------------------------------------------------- */
-/*                                  Helpers                                   */
-/* -------------------------------------------------------------------------- */
+/* ============================================================
+   HELPERS
+   ============================================================ */
+const uid = () => Math.random().toString(36).slice(2, 10);
+const today = () => new Date().toISOString().slice(0, 10);
+const addDays = (date: string, days: number) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const fmt = (n: number, code: CurrencyCode) => {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: code }).format(n || 0);
+  } catch {
+    return `${(n || 0).toFixed(2)} ${code}`;
+  }
+};
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function nextInvoiceNumber(current: string): string {
-  const match = current.match(/(\d+)\s*$/);
-  if (!match) return current;
-  const digits = match[1];
-  const incremented = String(Number(digits) + 1).padStart(digits.length, "0");
-  return current.slice(0, match.index) + incremented;
-}
-
-function Field({
-  label,
-  htmlFor,
-  required,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  required?: boolean;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <label
-        htmlFor={htmlFor}
-        className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400"
-      >
-        {label}
-        {required && <span className="text-emerald-400">*</span>}
-      </label>
-      {children}
-      {hint && <p className="text-xs leading-relaxed text-slate-500">{hint}</p>}
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                   Page                                     */
-/* -------------------------------------------------------------------------- */
-
+/* ============================================================
+   PAGE
+   ============================================================ */
 export default function CreateInvoicePage() {
   const router = useRouter();
 
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  /* --- session --- */
   const [userId, setUserId] = useState<string | null>(null);
+
+  /* --- directory --- */
+  const [savedClients, setSavedClients] = useState<SavedClient[]>([]);
+  const [savedProducts, setSavedProducts] = useState<SavedProduct[]>([]);
+
+  /* --- client --- */
+  const [clientMode, setClientMode] = useState<"saved" | "new">("new");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientAddress, setClientAddress] = useState("");
+  const [clientTaxId, setClientTaxId] = useState("");
+  const [saveToDirectory, setSaveToDirectory] = useState(true);
+
+  /* --- meta --- */
+  const [invoiceNumber, setInvoiceNumber] = useState("INV-0001");
+  const [issueDate, setIssueDate] = useState(today());
+  const [dueDate, setDueDate] = useState(addDays(today(), 30));
+  const [currency, setCurrency] = useState<CurrencyCode>("USD");
+
+  /* --- items --- */
+  const [items, setItems] = useState<LineItem[]>([
+    { id: uid(), description: "", quantity: 1, unitPrice: 0 },
+  ]);
+
+  /* --- tax --- */
+  const [taxMode, setTaxMode] = useState<TaxMode>("none");
+  const [taxRate, setTaxRate] = useState(0);
+  const [taxNote, setTaxNote] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [amountPaid, setAmountPaid] = useState(0);
+
+  /* --- payment --- */
+  const [paymentLink, setPaymentLink] = useState("");
+  const [upiId, setUpiId] = useState("");
+
+  /* --- branding --- */
+  const [brandColor, setBrandColor] = useState("#10b981");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [notes, setNotes] = useState("");
+
+  /* --- ui state --- */
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [successToken, setSuccessToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
-  /* ----------------------------- Session + numbering ----------------------------- */
+  /* ============================================================
+     LOAD SESSION + DIRECTORY
+     ============================================================ */
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError || !user) {
-        router.replace("/login");
-        return;
-      }
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) { router.replace("/login"); return; }
       if (cancelled) return;
-
       setUserId(user.id);
 
-      const { count } = await supabase
-        .from("invoices")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id);
+      const [{ data: cl }, { data: pr }, { count }] = await Promise.all([
+        supabase.from("clients").select("id,name,email,address,tax_id,country").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("products").select("id,name,default_price").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("invoices").select("*", { count: "exact", head: true }).eq("user_id", user.id),
+      ]);
 
       if (cancelled) return;
-
-      const nextNumber = `INV-${String((count ?? 0) + 1).padStart(4, "0")}`;
-      setForm((prev) => ({ ...prev, invoiceNumber: nextNumber }));
+      setSavedClients(cl || []);
+      setSavedProducts(pr || []);
+      setInvoiceNumber(`INV-${String((count ?? 0) + 1).padStart(4, "0")}`);
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [router]);
 
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  /* ============================================================
+     DRAFT AUTOSAVE (localStorage)
+     ============================================================ */
+  const draftKey = "invoice_os_draft_v1";
+  useEffect(() => {
+    const draft = { clientName, clientEmail, clientAddress, clientTaxId, invoiceNumber, issueDate, dueDate, currency, items, taxMode, taxRate, taxNote, discount, amountPaid, paymentLink, upiId, brandColor, logoUrl, notes };
+    try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch { /* noop */ }
+  }, [clientName, clientEmail, clientAddress, clientTaxId, invoiceNumber, issueDate, dueDate, currency, items, taxMode, taxRate, taxNote, discount, amountPaid, paymentLink, upiId, brandColor, logoUrl, notes]);
 
-  const activeCurrency = useMemo(
-    () => CURRENCIES.find((c) => c.code === form.currency) ?? CURRENCIES[1],
-    [form.currency]
-  );
+  /* ============================================================
+     AUTO RULES
+     ============================================================ */
+  useEffect(() => {
+    const preset = TAX_MODES.find((t) => t.value === taxMode);
+    if (preset && taxMode !== "custom") {
+      setTaxRate(preset.defaultRate);
+      setTaxNote(TAX_DISCLAIMERS[taxMode]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taxMode]);
 
-  const shareLink = shareToken ? `${PUBLIC_BASE_URL}/invoice/${shareToken}` : "";
+  useEffect(() => {
+    // Auto-clear UPI when switching away from INR
+    if (currency !== "INR") setUpiId("");
+    // Auto-clear payment link when switching to INR (UPI preferred)
+    if (currency === "INR") setPaymentLink("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency]);
 
-  /* --------------------------------- Submit --------------------------------- */
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  /* ============================================================
+     ITEMS
+     ============================================================ */
+  const addItem = useCallback(() => {
+    setItems((prev) => [...prev, { id: uid(), description: "", quantity: 1, unitPrice: 0 }]);
+  }, []);
+
+  const removeItem = useCallback((id: string) => {
+    setItems((prev) => (prev.length === 1 ? prev : prev.filter((i) => i.id !== id)));
+  }, []);
+
+  const updateItem = useCallback((id: string, field: keyof LineItem, value: string | number) => {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
+  }, []);
+
+  const addFromLibrary = useCallback((product: SavedProduct) => {
+    setItems((prev) => [...prev, { id: uid(), description: product.name, quantity: 1, unitPrice: product.default_price }]);
+    setLibraryOpen(false);
+  }, []);
+
+  /* ============================================================
+     CLIENT PICKER
+     ============================================================ */
+  const handleSelectClient = useCallback((id: string) => {
+    setSelectedClientId(id);
+    if (!id) return;
+    const c = savedClients.find((x) => x.id === id);
+    if (!c) return;
+    setClientName(c.name);
+    setClientEmail(c.email || "");
+    setClientAddress(c.address || "");
+    setClientTaxId(c.tax_id || "");
+  }, [savedClients]);
+
+  /* ============================================================
+     COMPUTED
+     ============================================================ */
+  const subtotal = useMemo(() => items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0), [items]);
+  const taxAmount = useMemo(() => (subtotal * (Number(taxRate) || 0)) / 100, [subtotal, taxRate]);
+  const total = useMemo(() => Math.max(0, subtotal + taxAmount - (Number(discount) || 0)), [subtotal, taxAmount, discount]);
+  const balanceDue = useMemo(() => Math.max(0, total - (Number(amountPaid) || 0)), [total, amountPaid]);
+  const status = useMemo(() => {
+    const paid = Number(amountPaid) || 0;
+    if (paid <= 0) return "pending";
+    if (paid >= total) return "paid";
+    return "partial";
+  }, [amountPaid, total]);
+
+  const currencySymbol = useMemo(() => CURRENCIES.find((c) => c.code === currency)?.symbol ?? "$", [currency]);
+
+  /* ============================================================
+     SUBMIT
+     ============================================================ */
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setError(null);
 
-    const amountNumber = Number(form.amount);
+    if (!userId) { setError("Session expired. Please sign in again."); return; }
+    if (!clientName.trim()) { setError("Client name is required."); return; }
 
-    if (!form.client.trim()) {
-      setError("Client name is required.");
-      return;
-    }
-    if (!form.invoiceNumber.trim()) {
-      setError("Invoice number is required.");
-      return;
-    }
-    if (form.email.trim() && !EMAIL_REGEX.test(form.email.trim())) {
-      setError("Please enter a valid client email address.");
-      return;
-    }
-    if (!form.amount.trim() || Number.isNaN(amountNumber) || amountNumber <= 0) {
-      setError("Please enter a total amount greater than 0.");
-      return;
-    }
-    if (!userId) {
-      setError("Your session has expired. Please sign in again.");
-      return;
-    }
+    const validItems = items.filter((i) => i.description.trim() && (Number(i.quantity) || 0) > 0);
+    if (validItems.length === 0) { setError("Add at least one valid line item."); return; }
+    if (total <= 0) { setError("Invoice total must be greater than zero."); return; }
 
     setSubmitting(true);
-
     try {
       const token = crypto.randomUUID();
 
-      const { error: insertError } = await supabase.from("invoices").insert({
-        client: form.client.trim(),
-        email: form.email.trim(),
-        invoice_number: form.invoiceNumber.trim(),
-        due_date: form.dueDate,
-        currency: form.currency,
-        amount: amountNumber,
-        payment_link: form.paymentLink.trim(),
-        upi_id: form.currency === "INR" ? form.upiId.trim() : "",
-        status: "pending",
-        share_token: token,
-        user_id: userId,
+      // 1) optionally save new client into directory
+      if (clientMode === "new" && saveToDirectory && clientName.trim()) {
+        await supabase.from("clients").insert({
+          user_id: userId,
+          name: clientName.trim(),
+          email: clientEmail.trim() || null,
+          address: clientAddress.trim() || null,
+          tax_id: clientTaxId.trim() || null,
+        });
+      }
+
+      // 2) atomic invoice + items
+      const { data, error: rpcError } = await supabase.rpc("create_invoice_with_items", {
+        p_invoice: {
+          user_id: userId,
+          client: clientName.trim(),
+          email: clientEmail.trim(),
+          client_address: clientAddress.trim(),
+          client_tax_id: clientTaxId.trim(),
+          invoice_number: invoiceNumber.trim(),
+          issue_date: issueDate,
+          due_date: dueDate,
+          currency,
+          subtotal,
+          tax_mode: taxMode,
+          tax_rate: taxRate,
+          tax_amount: taxAmount,
+          discount,
+          total,
+          amount_paid: amountPaid,
+          tax_note: taxNote,
+          payment_link: paymentLink,
+          upi_id: currency === "INR" ? upiId : "",
+          notes,
+          brand_color: brandColor,
+          logo_url: logoUrl,
+          share_token: token,
+        },
+        p_items: validItems.map((it, idx) => ({
+          description: it.description.trim(),
+          quantity: Number(it.quantity) || 0,
+          unit_price: Number(it.unitPrice) || 0,
+          line_total: (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0),
+          position: idx,
+        })),
       });
 
-      if (insertError) throw insertError;
+      if (rpcError) throw rpcError;
+      const returnedToken = (data as { share_token?: string } | null)?.share_token ?? token;
 
       setCopied(false);
-      setShareToken(token);
+      setSuccessToken(returnedToken);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while creating the invoice. Please try again."
-      );
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  /* --------------------------------- Actions -------------------------------- */
+  /* ============================================================
+     SHARE + PRINT
+     ============================================================ */
+  const shareLink = successToken ? `${PUBLIC_BASE_URL}/invoice/${successToken}` : "";
+
   const handleCopy = async () => {
     if (!shareLink) return;
-
-    try {
-      await navigator.clipboard.writeText(shareLink);
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = shareLink;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
+    try { await navigator.clipboard.writeText(shareLink); }
+    catch {
+      const t = document.createElement("textarea");
+      t.value = shareLink; t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select(); document.execCommand("copy"); document.body.removeChild(t);
     }
-
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    setCopied(true); window.setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCreateAnother = () => {
-    setShareToken(null);
-    setCopied(false);
-    setError(null);
-    setForm((prev) => ({
-      ...INITIAL_FORM,
-      currency: prev.currency,
-      invoiceNumber: nextInvoiceNumber(prev.invoiceNumber),
-    }));
+  const handlePrint = () => window.print();
+
+  const resetForm = () => {
+    setSuccessToken(null); setCopied(false); setError(null);
+    setClientName(""); setClientEmail(""); setClientAddress(""); setClientTaxId("");
+    setItems([{ id: uid(), description: "", quantity: 1, unitPrice: 0 }]);
+    setDiscount(0); setAmountPaid(0); setPaymentLink(""); setUpiId(""); setNotes("");
+    setInvoiceNumber((prev) => {
+      const m = prev.match(/(\d+)\s*$/);
+      if (!m) return prev;
+      return prev.slice(0, m.index) + String(Number(m[1]) + 1).padStart(m[1].length, "0");
+    });
   };
 
-  /* ---------------------------------- Render -------------------------------- */
+  /* ============================================================
+     RENDER
+     ============================================================ */
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto w-full max-w-3xl">
-        {/* Header */}
-        <div className="mb-8 flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10">
-            <Receipt className="h-6 w-6 text-emerald-400" />
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      {/* top bar */}
+      <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+              <Receipt className="h-4 w-4 text-emerald-400" />
+            </div>
+            <span className="text-sm font-semibold tracking-tight">Invoice-OS</span>
+            <span className="hidden items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 sm:inline-flex">
+              <Sparkles className="h-3 w-3" /> Pro
+            </span>
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
-              Create Invoice
-            </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Generate a shareable invoice in seconds — no PDFs, no friction.
-            </p>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+            <span className="hidden sm:inline">Bank-grade encryption · GDPR ready</span>
           </div>
         </div>
+      </header>
 
-        {/* Card */}
-        <form
-          onSubmit={handleSubmit}
-          noValidate
-          className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-slate-950/40 sm:p-8"
-        >
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <Field label="Client Name" htmlFor="client" required>
-              <input
-                id="client"
-                type="text"
-                value={form.client}
-                onChange={(e) => setField("client", e.target.value)}
-                placeholder="Acme Studios Inc."
-                autoComplete="off"
-                className={inputClass}
-              />
-            </Field>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <div className="mb-8">
+          <h1 className="text-3xl font-semibold tracking-tight">Create invoice</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Enterprise-grade invoicing — multi-currency, tax-compliant, and print-perfect in seconds.
+          </p>
+        </div>
 
-            <Field label="Client Email" htmlFor="email" hint="Optional — used for reminders.">
-              <input
-                id="email"
-                type="email"
-                value={form.email}
-                onChange={(e) => setField("email", e.target.value)}
-                placeholder="billing@acme.com"
-                autoComplete="off"
-                className={inputClass}
-              />
-            </Field>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_minmax(380px,480px)]">
+          {/* ================================================= FORM ================================================= */}
+          <form onSubmit={handleSubmit} className="space-y-6">
 
-            <Field label="Invoice Number" htmlFor="invoice-number" required>
-              <input
-                id="invoice-number"
-                type="text"
-                value={form.invoiceNumber}
-                onChange={(e) => setField("invoiceNumber", e.target.value)}
-                placeholder="INV-0001"
-                className={`${inputClass} font-mono tracking-wide`}
-              />
-            </Field>
+            {/* ---------------- CLIENT ---------------- */}
+            <section className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
+              <SectionHead icon={<Building2 className="h-4 w-4 text-emerald-400" />} title="Client" subtitle="Pick from directory or create new." />
 
-            <Field label="Due Date" htmlFor="due-date">
-              <input
-                id="due-date"
-                type="date"
-                value={form.dueDate}
-                onChange={(e) => setField("dueDate", e.target.value)}
-                className={`${inputClass} [color-scheme:dark]`}
-              />
-            </Field>
-
-            <Field label="Currency" htmlFor="currency" required>
-              <div className="relative">
-                <select
-                  id="currency"
-                  value={form.currency}
-                  onChange={(e) => setField("currency", e.target.value as CurrencyCode)}
-                  className={`${inputClass} appearance-none pr-10`}
-                >
-                  {CURRENCIES.map((currency) => (
-                    <option
-                      key={currency.code}
-                      value={currency.code}
-                      className="bg-slate-900 text-slate-100"
-                    >
-                      {currency.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <div className="mb-4 inline-flex rounded-xl border border-slate-800 bg-slate-950/60 p-1 text-xs">
+                <button type="button" onClick={() => setClientMode("saved")} className={`rounded-lg px-3 py-1.5 font-medium transition ${clientMode === "saved" ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"}`}>Directory</button>
+                <button type="button" onClick={() => setClientMode("new")} className={`rounded-lg px-3 py-1.5 font-medium transition ${clientMode === "new" ? "bg-slate-800 text-slate-100" : "text-slate-400 hover:text-slate-200"}`}>New client</button>
               </div>
-            </Field>
 
-            <Field label="Total Amount" htmlFor="amount" required>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500">
-                  {activeCurrency.symbol}
-                </span>
-                <input
-                  id="amount"
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={form.amount}
-                  onChange={(e) => setField("amount", e.target.value)}
-                  placeholder="0.00"
-                  className={`${inputClass} pl-10`}
-                />
-              </div>
-            </Field>
-
-            <div className="md:col-span-2">
-              <Field
-                label="Payment Link"
-                htmlFor="payment-link"
-                hint="Paste a Stripe, PayPal, Wise or your own portal link."
-              >
-                <input
-                  id="payment-link"
-                  type="url"
-                  value={form.paymentLink}
-                  onChange={(e) => setField("paymentLink", e.target.value)}
-                  placeholder="https://buy.stripe.com/..."
-                  className={inputClass}
-                />
-              </Field>
-            </div>
-
-            {form.currency === "INR" && (
-              <div className="md:col-span-2">
-                <Field label="UPI ID" htmlFor="upi-id" hint="Shown to your client for instant UPI payments.">
-                  <input
-                    id="upi-id"
-                    type="text"
-                    value={form.upiId}
-                    onChange={(e) => setField("upiId", e.target.value)}
-                    placeholder="yourname@upi"
-                    autoComplete="off"
-                    className={inputClass}
-                  />
-                </Field>
-              </div>
-            )}
-          </div>
-
-          {/* Error banner */}
-          {error && (
-            <div
-              role="alert"
-              className="mt-6 flex items-start gap-2.5 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-            >
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              disabled={submitting}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 px-5 py-3 text-sm font-medium text-slate-300 transition hover:border-slate-700 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              disabled={submitting}
-              aria-busy={submitting}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/40 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating Invoice...
-                </>
-              ) : (
-                <>
-                  Create Invoice
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* ------------------------------ Success Modal ----------------------------- */}
-      {shareToken && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="success-modal-title"
-        >
-          <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl shadow-emerald-500/5 sm:p-8">
-            <button
-              type="button"
-              onClick={() => setShareToken(null)}
-              aria-label="Close"
-              className="absolute right-4 top-4 rounded-xl p-2 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
-            >
-              <X className="h-4 w-4" />
-            </button>
-
-            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-500/25 bg-emerald-500/10">
-              <CheckCircle2 className="h-6 w-6 text-emerald-400" />
-            </div>
-
-            <h2
-              id="success-modal-title"
-              className="text-xl font-semibold tracking-tight text-slate-100"
-            >
-              Invoice created
-            </h2>
-            <p className="mt-1.5 text-sm text-slate-400">
-              {form.invoiceNumber} for{" "}
-              <span className="font-medium text-slate-200">{form.client}</span> is ready to share.
-            </p>
-
-            {/* Link box */}
-            <div className="mt-6">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Public Invoice Link
-              </p>
-              <div className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2.5">
-                <input
-                  readOnly
-                  value={shareLink}
-                  onFocus={(e) => e.currentTarget.select()}
-                  aria-label="Public invoice link"
-                  className="min-w-0 flex-1 truncate bg-transparent font-mono text-xs text-slate-300 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                    copied
-                      ? "bg-emerald-500/15 text-emerald-300"
-                      : "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
-                  }`}
-                >
-                  {copied ? (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy Link
-                    </>
+              {clientMode === "saved" ? (
+                <div className="space-y-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Saved clients</label>
+                  <div className="relative">
+                    <select value={selectedClientId} onChange={(e) => handleSelectClient(e.target.value)} className={`${inputClass} appearance-none pr-10`}>
+                      <option value="">Select a client…</option>
+                      {savedClients.map((c) => <option key={c.id} value={c.id} className="bg-slate-900">{c.name}{c.email ? ` — ${c.email}` : ""}</option>)}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  </div>
+                  {selectedClientId && (
+                    <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400">
+                      <p className="text-slate-200">{clientName}</p>
+                      {clientEmail && <p>{clientEmail}</p>}
+                      {clientAddress && <p className="mt-1 whitespace-pre-line">{clientAddress}</p>}
+                      {clientTaxId && <p className="mt-1">Tax ID: {clientTaxId}</p>}
+                    </div>
                   )}
-                </button>
-              </div>
-              <p aria-live="polite" className="sr-only">
-                {copied ? "Link copied to clipboard" : ""}
-              </p>
-            </div>
-
-            {/* Modal actions */}
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => router.push("/dashboard")}
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40"
-              >
-                Go to Dashboard
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleCreateAnother}
-                className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 px-5 py-3 text-sm font-medium text-slate-300 transition hover:border-slate-700 hover:text-slate-100"
-              >
-                Create Another
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-  }
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="Client Name" required>
+                    <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Acme Studios Inc." className={inputClass} />
+                  </Field>
+                  <Field label="Client Email">
+                    <input type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} placeholder="billing@acme.com" className={inputClass} />
+                  </Field>
+                  <Field label="Billing Address">
+                    <input value={clientAddress} onChange={(e) => setClientAddress(e.target.value)} placeholder="123 Market St, San Francisco, CA" className={inputClass} />
+                  </Field>
+                  <Field label="T
