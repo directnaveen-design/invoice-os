@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabaseUrl = 'https://xrmclrvofapznzfumjyr.supabase.co'
+const supabaseAnonKey = 'sb_publishable_RM1utNmn0l0eudcg19tNJA_1Wk4JDvL'
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 export default async function PublicInvoicePage({
@@ -23,7 +23,7 @@ export default async function PublicInvoicePage({
         <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-xl">
           <h1 className="text-xl font-bold text-red-400 mb-2">Invoice Not Found</h1>
           <p className="text-slate-400 text-sm mb-6">
-            Yeh invoice link expire ho chuka hai ya galat hai.
+            This invoice link has expired or the token is invalid.
           </p>
           <Link
             href="/"
@@ -118,36 +118,5 @@ export default async function PublicInvoicePage({
                 {/* Mobile Direct Pay Button */}
                 <a
                   href={upiLink}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-xl text-center text-sm transition shadow-lg shadow-emerald-900/20 sm:hidden"
-                >
-                  Pay via UPI App (GPay / PhonePe)
-                </a>
-              </div>
-            ) : null}
-
-            {invoice.payment_link && (
-              <a
-                href={invoice.payment_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full block bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-xl text-center text-sm transition"
-              >
-                Pay via Online Card / Portal →
-              </a>
-            )}
-          </div>
-        ) : (
-          <div className="p-4 bg-emerald-950/30 border border-emerald-800/40 rounded-2xl text-center text-emerald-400 text-sm font-medium">
-            ✓ This invoice has been marked as paid.
-          </div>
-        )}
-
-        <div className="text-center pt-2">
-          <p className="text-[11px] text-slate-500">
-            Powered by <span className="font-semibold text-slate-400">Invoice-OS</span>
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-      }
+                  className="w-full bg-emerald-600 hover:
+          
