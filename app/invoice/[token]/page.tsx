@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 const supabase = createClient(
   'https://xrmclrvofapznzfumjyr.supabase.co',
   'sb_publishable_RM1utNmn0l0eudcg19tNJA_1Wk4JDvL'
@@ -21,8 +23,14 @@ export default async function PublicInvoicePage({
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6 text-center font-sans">
         <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-xl">
           <h1 className="text-xl font-bold text-red-400 mb-2">Invoice Not Found</h1>
-          <p className="text-slate-400 text-sm mb-6">
+          <p className="text-slate-400 text-sm mb-4">
             This invoice link has expired or the token is invalid.
+          </p>
+          <p className="text-red-400 text-xs mb-2 break-all">
+            Debug token: {String(token)}
+          </p>
+          <p className="text-red-400 text-xs mb-6 break-all">
+            Debug error: {error ? error.message : 'No error, data is empty (null)'}
           </p>
           <Link href="/" className="inline-block bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
             Go to Dashboard
@@ -37,7 +45,7 @@ export default async function PublicInvoicePage({
   const businessName = invoice.business_name || 'Merchant'
   const upiId = invoice.upi_id || ''
   const upiLink = upiId
-    ? `upi://pay?pa=${upiId}&pn=${encodeURIComponent(businessName)}&am=${invoice.amount}&tn=Invoice_${invoice.invoice_number}`
+    ? `upi://pay?pa=${upiId}&pn=${encodeURIComponent(businessName)}&am=${Number(invoice.amount).toFixed(2)}&tn=${encodeURIComponent('Invoice_' + invoice.invoice_number)}`
     : ''
   const qrCodeUrl = upiLink
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiLink)}`
@@ -125,4 +133,4 @@ export default async function PublicInvoicePage({
       </div>
     </div>
   )
-}
+                    }
