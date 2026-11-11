@@ -25,9 +25,7 @@ export type Invoice = {
   paidDate?: string
   isNew?: boolean
 }
-
-export const TODAY = '2026-11-08'
-
+export const TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const DAY = 86_400_000
 
 export function addDays(iso: string, days: number) {
