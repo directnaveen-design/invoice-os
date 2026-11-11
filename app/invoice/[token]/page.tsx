@@ -4,18 +4,12 @@ import Link from 'next/link'
 export const dynamic = 'force-dynamic'
 
 const supabase = createClient(
-  'https://xrmclrvofapznzfumjyr.supabase.co',
-  'sb_publishable_RM1utNmn0l0eudcg19tNJA_1Wk4JDvL'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',
-  EUR: '€',
-  GBP: '£',
-  CAD: 'CA$',
-  AUD: 'A$',
-  AED: 'AED ',
-  INR: '₹',
+  USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', AUD: 'A$', AED: 'AED ', INR: '₹',
 }
 
 export default async function PublicInvoicePage({
@@ -24,26 +18,18 @@ export default async function PublicInvoicePage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const { data: invoice, error } = await supabase.rpc('get_public_invoice', {
-    p_token: token,
-  })
+  const { data: invoice, error } = await supabase.rpc('get_public_invoice', { p_token: token })
 
   if (error || !invoice) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6 text-center font-sans">
         <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-xl">
           <h1 className="text-xl font-bold text-red-400 mb-2">Invoice Not Found</h1>
-          <p className="text-slate-400 text-sm mb-4">
+          <p className="text-slate-400 text-sm mb-6">
             This invoice link has expired or the token is invalid.
           </p>
-          <p className="text-red-400 text-xs mb-2 break-all">
-            Debug token: {String(token)}
-          </p>
-          <p className="text-red-400 text-xs mb-6 break-all">
-            Debug error: {error ? error.message : 'No error, data is empty (null)'}
-          </p>
           <Link href="/" className="inline-block bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
-            Go to Dashboard
+            Go to Home
           </Link>
         </div>
       </div>
@@ -55,10 +41,11 @@ export default async function PublicInvoicePage({
   const currencySymbol = CURRENCY_SYMBOLS[rawCurrency] || `${rawCurrency} `
   const isPaid = invoice.status === 'paid'
   const businessName = invoice.business_name || 'Merchant'
-  
+  const invoiceAmount = Number(invoice.amount || invoice.total || 0)
+
   const upiId = invoice.upi_id || ''
-  const upiLink = upiId
-    ? `upi://pay?pa=${upiId}&pn=${encodeURIComponent(businessName)}&am=${Number(invoice.amount).toFixed(2)}&tn=${encodeURIComponent('Invoice_' + invoice.invoice_number)}`
+  const upiLink = upiId && isINR
+    ? `upi://pay?pa=${upiId}&pn=${encodeURIComponent(businessName)}&am=${invoiceAmount.toFixed(2)}&tn=${encodeURIComponent('Invoice_' + invoice.invoice_number)}`
     : ''
   const qrCodeUrl = upiLink
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiLink)}`
@@ -86,7 +73,6 @@ export default async function PublicInvoicePage({
         }
       `}</style>
 
-      {/* Top Action Bar: Global Print / Save PDF */}
       <div className="max-w-lg w-full flex justify-between items-center mb-4 px-2 print-hidden">
         <span className="text-xs font-mono text-slate-500 uppercase tracking-widest">
           Verified Commercial Invoice
@@ -100,15 +86,12 @@ export default async function PublicInvoicePage({
       </div>
 
       <div className="invoice-card max-w-lg w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-start border-b border-slate-800 pb-5">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white">{businessName}</h1>
             <p className="text-xs text-slate-400 mt-1">Invoice #{invoice.invoice_number}</p>
             {invoice.tax_id && (
-              <p className="text-[11px] font-mono text-slate-500 mt-0.5">
-                Tax/VAT ID: {invoice.tax_id}
-              </p>
+              <p className="text-[11px] font-mono text-slate-500 mt-0.5">Tax/VAT ID: {invoice.tax_id}</p>
             )}
           </div>
           <span
@@ -122,7 +105,6 @@ export default async function PublicInvoicePage({
           </span>
         </div>
 
-        {/* Invoice Summary */}
         <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-5 space-y-3 text-sm">
           <div className="flex justify-between">
             <span className="text-slate-400">Billed To</span>
@@ -140,12 +122,11 @@ export default async function PublicInvoicePage({
             <span className="text-base text-slate-300 font-medium">Total Amount</span>
             <span className="text-2xl font-extrabold text-white">
               {currencySymbol}
-              {Number(invoice.amount).toLocaleString(isINR ? 'en-IN' : 'en-US', { minimumFractionDigits: isINR ? 0 : 2 })}
+              {invoiceAmount.toLocaleString(isINR ? 'en-IN' : 'en-US', { minimumFractionDigits: isINR ? 0 : 2 })}
             </span>
           </div>
         </div>
 
-        {/* Dynamic Payment Gate: UPI for India, Global Wire/Card for International */}
         {!isPaid ? (
           <div className="space-y-4 print-hidden">
             {isINR && upiId ? (
@@ -212,4 +193,4 @@ export default async function PublicInvoicePage({
       />
     </div>
   )
-}
+                }
