@@ -72,7 +72,7 @@ const inputClass =
   "w-full rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20";
 
 const uid = () => Math.random().toString(36).slice(2, 9);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 const addDays = (d: string, days: number) => {
   const date = new Date(d);
   date.setDate(date.getDate() + days);
@@ -177,7 +177,14 @@ export default function CreateInvoicePage() {
     if (!userId) return setError("Session expired. Please log in.");
     if (!clientName.trim()) return setError("Client name is required.");
 
-    const validItems = items.filter((i) => i.description.trim() && Number(i.quantity) > 0);
+    const validItems = items
+      .filter((i) => i.description.trim() && Number(i.quantity) > 0)
+      .map((i) => ({
+        description: i.description.trim(),
+        quantity: Number(i.quantity),
+        unitPrice: Number(i.unitPrice),
+      }));
+
     if (validItems.length === 0) return setError("Add at least one valid line item.");
     if (total <= 0) return setError("Total must be greater than zero.");
 
@@ -195,9 +202,11 @@ export default function CreateInvoicePage() {
         });
       }
 
+      // Save complete invoice with items, subtotal, and tax
       const { error: invoiceError } = await supabase.from("invoices").insert({
         user_id: userId,
         client: clientName.trim(),
+        client_email: clientEmail.trim() || null,
         email: clientEmail.trim() || null,
         client_address: clientAddress.trim() || null,
         client_tax_id: clientTaxId.trim() || null,
@@ -205,10 +214,12 @@ export default function CreateInvoicePage() {
         issue_date: issueDate,
         due_date: dueDate,
         currency,
+        items: validItems,
         subtotal,
         tax_mode: taxMode,
         tax_rate: taxRate,
         tax_amount: taxAmount,
+        amount: total,
         total,
         amount_paid: 0,
         tax_note: taxNote,
@@ -454,30 +465,4 @@ export default function CreateInvoicePage() {
               </span>
               <button onClick={() => setSuccessToken(null)} className="text-slate-400 hover:text-white">
                 <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-400">Client payment page is active:</p>
-            <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2">
-              <input readOnly value={shareLink} className="flex-1 bg-transparent font-mono text-xs text-slate-300 outline -none truncate"
-              />
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950"
-              >
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => router.push("/")}
-              className="mt-4 w-full rounded-xl bg-slate-800 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
-            >
-              Back to Dashboard
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-                }
+              
