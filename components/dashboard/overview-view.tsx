@@ -130,10 +130,9 @@ export function OverviewView({ invoices, onOpenChase }: Props) {
       <TotalCollectedCard invoices={invoices} />
       <PendingCashflowCard invoices={invoices} />
       <OverdueRiskCard invoices={invoices} />
-      <RevenueChart />
+      <RevenueChart invoices={invoices} />
       <UpcomingChases invoices={invoices} onOpenChase={onOpenChase} />
       <RecentInvoices invoices={invoices} />
     </div>
   )
                 }
-        
