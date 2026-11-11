@@ -112,7 +112,9 @@ function RecentInvoices({ invoices }: { invoices: Invoice[] }) {
                   <StatusBadge status={inv.status} />
                 </td>
                 <td className="px-5 py-3 text-muted-foreground">{formatDate(inv.dueDate)}</td>
-                <td className="px-5 py-3 text-right font-mono">{formatCurrency(invoiceTotals(inv).total)}</td>
+                <td className="px-5 py-3 text-right font-mono font-medium">
+                  {formatCurrency(invoiceTotals(inv).total, inv.currency || 'USD')}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -125,7 +127,7 @@ function RecentInvoices({ invoices }: { invoices: Invoice[] }) {
 export function OverviewView({ invoices, onOpenChase }: Props) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-      <TotalCollectedCard />
+      <TotalCollectedCard invoices={invoices} />
       <PendingCashflowCard invoices={invoices} />
       <OverdueRiskCard invoices={invoices} />
       <RevenueChart />
@@ -133,4 +135,5 @@ export function OverviewView({ invoices, onOpenChase }: Props) {
       <RecentInvoices invoices={invoices} />
     </div>
   )
-}
+                }
+        
