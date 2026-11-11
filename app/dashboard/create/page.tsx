@@ -455,8 +455,7 @@ export default function CreateInvoicePage() {
           </div>
         </form>
       </main>
-
-      {successToken && (
+            {successToken && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl">
             <div className="flex justify-between items-center mb-3">
@@ -465,4 +464,30 @@ export default function CreateInvoicePage() {
               </span>
               <button onClick={() => setSuccessToken(null)} className="text-slate-400 hover:text-white">
                 <X className="h-4 w-4" />
-              
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">Client payment page is active:</p>
+            <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2">
+              <input readOnly value={shareLink} className="flex-1 bg-transparent font-mono text-xs text-slate-300 outline-none truncate" />
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push("/")}
+              className="mt-4 w-full rounded-xl bg-slate-800 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
